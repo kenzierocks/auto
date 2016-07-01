@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.processing.ProcessingEnvironment;
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
@@ -314,11 +315,13 @@ class BuilderSpec {
     private final String name;
     private final String parameterTypeString;
     private final String copyOf;
+    private final String nullableAnnotation;
 
     public PropertySetter(
         ExecutableElement setter, TypeMirror propertyType, TypeSimplifier typeSimplifier) {
       this.name = setter.getSimpleName().toString();
-      TypeMirror parameterType = Iterables.getOnlyElement(setter.getParameters()).asType();
+      VariableElement parameterElement = Iterables.getOnlyElement(setter.getParameters());
+      TypeMirror parameterType = parameterElement.asType();
       String simplifiedParameterType = typeSimplifier.simplify(parameterType);
       if (setter.isVarArgs()) {
         simplifiedParameterType = simplifiedParameterType.replaceAll("\\[\\]$", "...");
@@ -329,10 +332,30 @@ class BuilderSpec {
       boolean sameType = typeUtils.isSameType(typeUtils.erasure(parameterType), erasedPropertyType);
       if (sameType) {
         this.copyOf = null;
+        this.nullableAnnotation = "";
       } else {
         String rawTarget = typeSimplifier.simplifyRaw(erasedPropertyType);
-        String of = Optionalish.isOptional(propertyType) ? "of" : "copyOf";
+        Optionalish optional = Optionalish.createIfOptional(propertyType, rawTarget);
+        String nullableAnnotation = "";
+        String of = null;
+        if (optional != null) {
+          for (AnnotationMirror annotationMirror : parameterElement.getAnnotationMirrors()) {
+            AnnotationOutput annotationOutput = new AnnotationOutput(typeSimplifier);
+            String annotationName = annotationOutput.sourceFormForAnnotation(annotationMirror);
+            if (annotationName.equals("@Nullable") || annotationName.endsWith(".Nullable")) {
+              of = optional.getNullable();
+              nullableAnnotation = annotationName + " ";
+              break;
+            }
+          }
+          if (of == null) {
+            of = "of";
+          }
+        } else {
+          of = "copyOf";
+        }
         this.copyOf = rawTarget + "." + of + "(%s)";
+        this.nullableAnnotation = nullableAnnotation;
       }
     }
 
@@ -344,18 +367,22 @@ class BuilderSpec {
       return parameterTypeString;
     }
 
+    public String getNullableAnnotation() {
+      return nullableAnnotation;
+    }
+
     public String copy(AutoValueProcessor.Property property) {
       if (copyOf == null) {
         return property.toString();
       }
-      
+
       String copy = String.format(copyOf, property);
-      
+
       // Add a null guard only in cases where we are using copyOf and the property is @Nullable.
       if (property.isNullable()) {
         copy = String.format("(%s == null ? null : %s)", property, copy);
       }
-      
+
       return copy;
     }
   }
