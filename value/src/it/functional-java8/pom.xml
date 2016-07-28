@@ -24,7 +24,7 @@
   <name>Auto-Value Functional Integration Test (Java 8)</name>
   <dependencies>
     <dependency>
-      <groupId>com.google.auto.value</groupId>
+      <groupId>@auto.groupId@</groupId>
       <artifactId>auto-value</artifactId>
       <version>@auto.version@</version>
     </dependency>
