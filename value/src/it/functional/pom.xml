@@ -27,7 +27,7 @@
   </properties>
   <dependencies>
     <dependency>
-      <groupId>@auto.groupId@<</groupId>
+      <groupId>@auto.groupId@</groupId>
       <artifactId>auto-value</artifactId>
       <version>@auto.version@</version>
     </dependency>
