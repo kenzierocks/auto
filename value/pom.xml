@@ -24,12 +24,13 @@
     <version>3</version>
   </parent>
 
-  <groupId>com.google.auto.value</groupId>
+  <groupId>me.kenzierocks.auto.value</groupId>
   <artifactId>auto-value</artifactId>
-  <version>1.4-SNAPSHOT</version>
+  <version>1.5</version>
   <name>AutoValue</name>
   <description>
     Immutable value-type code generation for Java 1.6+.
+    Forked from Google's auto value to add support for a PR.
   </description>
 
   <properties>
@@ -38,9 +39,9 @@
     <exclude.tests>this-matches-nothing</exclude.tests>
   </properties>
   <scm>
-    <url>http://github.com/google/auto</url>
-    <connection>scm:git:git://github.com/google/auto.git</connection>
-    <developerConnection>scm:git:ssh://git@github.com/google/auto.git</developerConnection>
+    <url>http://github.com/kenzierocks/auto</url>
+    <connection>scm:git:git://github.com/kenzierocks/auto.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/kenzierocks/auto.git</developerConnection>
     <tag>HEAD</tag>
   </scm>
 
@@ -131,6 +132,7 @@
           <addTestClassPath>true</addTestClassPath>
           <cloneProjectsTo>${project.build.directory}/it</cloneProjectsTo>
           <filterProperties>
+            <auto.groupId>${project.groupId}</auto.groupId>
             <auto.version>${project.version}</auto.version>
           </filterProperties>
           <pomIncludes>

@@ -35,7 +35,7 @@
   </dependencyManagement>
   <dependencies>
     <dependency>
-      <groupId>com.google.auto.value</groupId>
+      <groupId>@auto.groupId@<</groupId>
       <artifactId>auto-value</artifactId>
       <version>@auto.version@</version>
       <optional>true</optional>
