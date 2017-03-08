@@ -30,6 +30,8 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
+import jdk.internal.dynalink.linker.LinkerServices;
+
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.processing.ProcessingEnvironment;
@@ -317,7 +319,8 @@ class BuilderSpec {
         ExecutableElement setter, TypeMirror propertyType, TypeSimplifier typeSimplifier) {
       this.access = AutoValueProcessor.access(setter);
       this.name = setter.getSimpleName().toString();
-      TypeMirror parameterType = Iterables.getOnlyElement(setter.getParameters()).asType();
+      VariableElement parameterElement = Iterables.getOnlyElement(setter.getParameters());
+      TypeMirror parameterType = parameterElement.asType();
       primitiveParameter = parameterType.getKind().isPrimitive();
       String simplifiedParameterType = typeSimplifier.simplify(parameterType);
       if (setter.isVarArgs()) {
