@@ -19,10 +19,12 @@ import com.google.auto.common.MoreElements;
 import com.google.auto.common.MoreTypes;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableBiMap;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
@@ -66,11 +68,6 @@ class PropertyBuilderClassifier {
     this.elementUtils = elementUtils;
     this.builderMethodClassifier = builderMethodClassifier;
     this.getterToPropertyName = getterToPropertyName;
-    ImmutableMap.Builder<String, ExecutableElement> getterToPropertyNameBuilder =
-        ImmutableMap.builder();
-    for (ExecutableElement getter : getterToPropertyName.keySet()) {
-      getterToPropertyNameBuilder.put(getter.getSimpleName().toString(), getter);
-    }
     this.typeSimplifier = typeSimplifier;
     this.eclipseHack = eclipseHack;
   }
@@ -86,24 +83,30 @@ class PropertyBuilderClassifier {
     private final String name;
     private final String builderType;
     private final String initializer;
-    private final String initEmpty;
+    private final String beforeInitDefault;
+    private final String initDefault;
     private final String builtToBuilder;
     private final String copyAll;
+    private final Optionalish optional;
 
     PropertyBuilder(
         ExecutableElement propertyBuilderMethod,
         String builderType,
         String initializer,
-        String initEmpty,
+        String beforeInitDefault,
+        String initDefault,
         String builtToBuilder,
-        String copyAll) {
+        String copyAll,
+        Optionalish optional) {
       this.propertyBuilderMethod = propertyBuilderMethod;
       this.name = propertyBuilderMethod.getSimpleName() + "$";
       this.builderType = builderType;
       this.initializer = initializer;
-      this.initEmpty = initEmpty;
+      this.beforeInitDefault = beforeInitDefault;
+      this.initDefault = initDefault;
       this.builtToBuilder = builtToBuilder;
       this.copyAll = copyAll;
+      this.optional = optional;
     }
 
     /** The property builder method, for example {@code barBuilder()}. */
@@ -131,13 +134,22 @@ class PropertyBuilderClassifier {
     }
 
     /**
-     * A method to return an empty collection of the type that this builder builds. For example,
+     * An empty string, or a complete statement to be included before the expression returned by
+     * {@link #getInitDefault()}.
+     */
+    public String getBeforeInitDefault() {
+      return beforeInitDefault;
+    }
+
+    /**
+     * An expression to return a default instance of the type that this builder builds. For example,
      * if this is an {@code ImmutableList<String>} then the method {@code ImmutableList.of()} will
      * correctly return an empty {@code ImmutableList<String>}, assuming the appropriate context for
-     * type inference.
+     * type inference. The expression here can assume that the statement from
+     * {@link #getBeforeInitDefault} has preceded it.
      */
-    public String getInitEmpty() {
-      return initEmpty;
+    public String getInitDefault() {
+      return initDefault;
     }
 
     /**
@@ -158,6 +170,24 @@ class PropertyBuilderClassifier {
     public String getCopyAll() {
       return copyAll;
     }
+
+    /**
+     * The {@link Optionalish} that was created for the property, if applicable.
+     */
+    public Optionalish getOptional() {
+      return optional;
+    }
+
+    /**
+     * An expression to build the property, wrapping it using Optionalish if needed.
+     */
+    public String getBuild() {
+      if (optional == null) {
+        return name + ".build()";
+      } else {
+        return optional.getRawType() + ".of(" + name + ".build())";
+      }
+    }
   }
 
   // Construct this string so it won't be found by Maven shading and renamed, which is not what
@@ -172,6 +202,8 @@ class PropertyBuilderClassifier {
   // `BarBuilder` type are:
   // (1) It must have an instance method called `build()` that returns `Bar`. If the type of
   //     `bar()` is `Bar<String>` then the type of `build()` must be `Bar<String>`.
+  //      The property may be `Optional<Bar> bar()`, in which case the type of `build()` must
+  //      still be `Bar`, and it still cannot return `null`.
   // (2) `BarBuilder` must have a public no-arg constructor, or `Bar` must have a static method
   //     `builder()` or `newBuilder()` that returns `BarBuilder`.
   // (3) `Bar` must have an instance method `BarBuilder toBuilder()`, or `BarBuilder` must be a
@@ -191,11 +223,24 @@ class PropertyBuilderClassifier {
     TypeElement barBuilderTypeElement = MoreTypes.asTypeElement(barBuilderTypeMirror);
     Map<String, ExecutableElement> barBuilderNoArgMethods = noArgMethodsOf(barBuilderTypeElement);
 
-    TypeMirror barTypeMirror = getterToPropertyName.inverse().get(property).getReturnType();
+    ExecutableElement barGetter = getterToPropertyName.inverse().get(property);
+    TypeMirror barTypeMirror = barGetter.getReturnType();
+
+    // Handle `Optional<Bar>` by replacing the type mirror with the contained type
+    Optionalish barOptionalish =
+        Optionalish.createIfOptional(barTypeMirror, typeSimplifier.simplifyRaw(barTypeMirror));
+    if (barOptionalish != null) {
+      barTypeMirror = barOptionalish.getContainedType(typeUtils);
+    }
+
     if (barTypeMirror.getKind() != TypeKind.DECLARED) {
       errorReporter.reportError("Method looks like a property builder, but the type of property "
           + property + " is not a class or interface", method);
       return Optional.absent();
+    }
+    if (isNullable(barGetter)) {
+      errorReporter.reportError("Property " + property + " has a property builder so it cannot "
+          + "be @Nullable", barGetter);
     }
     TypeElement barTypeElement = MoreTypes.asTypeElement(barTypeMirror);
     Map<String, ExecutableElement> barNoArgMethods = noArgMethodsOf(barTypeElement);
@@ -230,10 +275,10 @@ class PropertyBuilderClassifier {
     ExecutableElement builderMaker = maybeBuilderMaker.get();
 
     String barBuilderType = typeSimplifier.simplify(barBuilderTypeMirror);
-    String barType = typeSimplifier.simplifyRaw(barTypeMirror);
+    String rawBarType = typeSimplifier.simplifyRaw(barTypeMirror);
     String initializer = (builderMaker.getKind() == ElementKind.CONSTRUCTOR)
         ? "new " + barBuilderType + "()"
-        : barType + "." + builderMaker.getSimpleName() + "()";
+        : rawBarType + "." + builderMaker.getSimpleName() + "()";
     String builtToBuilder = null;
     String copyAll = null;
     ExecutableElement toBuilder = barNoArgMethods.get("toBuilder");
@@ -253,10 +298,33 @@ class PropertyBuilderClassifier {
     }
     ExecutableElement barOf = barNoArgMethods.get("of");
     boolean hasOf = (barOf != null && barOf.getModifiers().contains(Modifier.STATIC));
-    String initEmpty = hasOf ? barType + ".of()" : null;
+    // An expression (initDefault) to make a default one of these, plus optionally a statement
+    // (beforeInitDefault) that prepares the expression. For a collection, beforeInitDefault is
+    // empty and initDefault is (e.g.) `ImmutableList.of()`. For a nested value type,
+    // beforeInitDefault is (e.g.)
+    //   `NestedAutoValueType.Builder foo$builder = NestedAutoValueType.builder();`
+    // and initDefault is `foo$builder.build();`. The reason for the separate statement is to
+    // exploit type inference rather than having to write `NestedAutoValueType.<Bar>build();`.
+    String beforeInitDefault;
+    String initDefault;
+    if (hasOf) {
+      beforeInitDefault = "";
+      initDefault = rawBarType + ".of()";
+    } else {
+      String localBuilder = property + "$builder";
+      beforeInitDefault = barBuilderType + " " + localBuilder + " = " + initializer + ";";
+      initDefault = localBuilder + ".build()";
+    }
 
     PropertyBuilder propertyBuilder = new PropertyBuilder(
-        method, barBuilderType, initializer, initEmpty, builtToBuilder, copyAll);
+        method,
+        barBuilderType,
+        initializer,
+        beforeInitDefault,
+        initDefault,
+        builtToBuilder,
+        copyAll,
+        barOptionalish);
     return Optional.of(propertyBuilder);
   }
 
@@ -312,5 +380,20 @@ class PropertyBuilderClassifier {
       }
     }
     return Optional.absent();
+  }
+
+  private static boolean isNullable(ExecutableElement getter) {
+    List<List<? extends AnnotationMirror>> annotationLists =
+        ImmutableList.of(
+            getter.getAnnotationMirrors(),
+            Java8Support.getAnnotationMirrors(getter.getReturnType()));
+    for (List<? extends AnnotationMirror> annotations : annotationLists) {
+      for (AnnotationMirror annotation : annotations) {
+        if (annotation.getAnnotationType().asElement().getSimpleName().contentEquals("Nullable")) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 }
