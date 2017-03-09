@@ -254,7 +254,7 @@ $a
     ${setter.access}${builderTypeName}${builderActualTypes} ##
         ${setter.name}(${nullableAnnotation}$setter.parameterType $p) {
 
-      #if (!$setter.primitiveParameter && !$nullableAnnotation)
+      #if (!${setter.primitiveParameter} && ${nullableAnnotation.isEmpty()})
 
       if ($p == null) {
         throw new NullPointerException("Null $p.name");
