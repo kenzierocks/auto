@@ -24,7 +24,7 @@
     <version>4-SNAPSHOT</version>
   </parent>
 
-  <groupId>com.google.auto.value</groupId>
+  <groupId>me.kenzierocks.auto.value</groupId>
   <artifactId>auto-value</artifactId>
   <version>1.7</version>
   <name>AutoValue</name>
