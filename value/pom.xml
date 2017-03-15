@@ -132,6 +132,7 @@
           <cloneProjectsTo>${project.build.directory}/it</cloneProjectsTo>
           <filterProperties>
             <auto.version>${project.version}</auto.version>
+            <auto.groupId>${project.groupId}</auto.groupId>
           </filterProperties>
           <pomIncludes>
             <pomInclude>*/pom.xml</pomInclude>
